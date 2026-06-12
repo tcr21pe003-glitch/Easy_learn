@@ -380,9 +380,36 @@
       const [evaluation, setEvaluation] = useState(null);
       const [stats, setStats] = useState({ easy: 0, hard: 0, again: 0 });
       const [finished, setFinished] = useState(false);
+      const [listening, setListening] = useState(false);
       const textareaRef = useRef(null);
+      const recognitionRef = useRef(null);
 
       useEffect(() => { if (phase === "typing" && textareaRef.current) textareaRef.current.focus(); }, [phase]);
+
+      function startVoice() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { alert("Voice not supported on this browser. Use Chrome."); return; }
+        const recognition = new SpeechRecognition();
+        recognition.lang = "en-IN";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognitionRef.current = recognition;
+        recognition.onstart = () => setListening(true);
+        recognition.onend = () => setListening(false);
+        recognition.onresult = (e) => {
+          let transcript = "";
+          for (let i = 0; i < e.results.length; i++) {
+            transcript += e.results[i][0].transcript;
+          }
+          setAnswer(transcript);
+        };
+        recognition.start();
+      }
+
+      function stopVoice() {
+        if (recognitionRef.current) { recognitionRef.current.stop(); }
+        setListening(false);
+      }
 
       if (cards.length === 0) return (
         <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -462,11 +489,26 @@ easy=75-100, hard=40-74, again=0-39`;
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.muted, marginBottom: 10 }}>QUESTION</div>
               <div style={{ fontSize: 17, fontWeight: 600, color: C.text, lineHeight: 1.5 }}>{card.question}</div>
             </div>
-            {phase === "question" && <button onClick={() => setPhase("typing")} style={S.primaryBtn}>Write My Answer</button>}
+            {phase === "question" && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setPhase("typing")} style={{ ...S.primaryBtn, flex: 1 }}>✏️ Type Answer</button>
+                <button onClick={() => { setPhase("typing"); setTimeout(startVoice, 300); }} style={{ ...S.primaryBtn, flex: 1, background: C.green }}>🎤 Voice Answer</button>
+              </div>
+            )}
             {phase === "typing" && (
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 8 }}>Your Answer</div>
-                <textarea ref={textareaRef} style={{ ...S.input, minHeight: 120, resize: "vertical" }} value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Type your answer here..." />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>Your Answer</div>
+                  <button onClick={listening ? stopVoice : startVoice} style={{ display: "flex", alignItems: "center", gap: 6, background: listening ? C.red : C.green, color: "white", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {listening ? "⏹ Stop" : "🎤 Speak"}
+                  </button>
+                </div>
+                {listening && (
+                  <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 10, padding: "10px 14px", marginBottom: 10, fontSize: 13, color: C.red, fontWeight: 600 }}>
+                    🔴 Listening... speak your answer
+                  </div>
+                )}
+                <textarea ref={textareaRef} style={{ ...S.input, minHeight: 120, resize: "vertical" }} value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Speak or type your answer here..." />
                 <button onClick={evaluateAnswer} disabled={!answer.trim()} style={{ ...S.primaryBtn, opacity: answer.trim() ? 1 : 0.5 }}>Submit Answer →</button>
               </div>
             )}

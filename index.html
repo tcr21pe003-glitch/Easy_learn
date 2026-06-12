@@ -372,7 +372,7 @@
       );
     }
 
-    function StudySession({ deck, onFinish }) {
+    function StudySession({ deck, onFinish, user }) {
       const cards = deck.cards || [];
       const [cardIndex, setCardIndex] = useState(0);
       const [phase, setPhase] = useState("question");
@@ -381,10 +381,26 @@
       const [stats, setStats] = useState({ easy: 0, hard: 0, again: 0 });
       const [finished, setFinished] = useState(false);
       const [listening, setListening] = useState(false);
+      const [cardProgress, setCardProgress] = useState({});
       const textareaRef = useRef(null);
       const recognitionRef = useRef(null);
 
       useEffect(() => { if (phase === "typing" && textareaRef.current) textareaRef.current.focus(); }, [phase]);
+
+      useEffect(() => {
+        async function loadProgress() {
+          if (!user) return;
+          try {
+            const data = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
+            if (data) {
+              const map = {};
+              data.forEach(p => { map[p.card_id] = p; });
+              setCardProgress(map);
+            }
+          } catch(e) {}
+        }
+        loadProgress();
+      }, []);
 
       function startVoice() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -446,8 +462,28 @@ easy=75-100, hard=40-74, again=0-39`;
         }
       }
 
-      function handleRating(r) {
+      async function handleRating(r) {
         setStats(s => ({ ...s, [r]: s[r] + 1 }));
+        // Save SM-2 progress to Supabase
+        const ratingMap = { easy: 5, hard: 3, again: 0 };
+        const prev = cardProgress[card.id] || { interval: 1, ease: 2.5, repetitions: 0 };
+        const updated = sm2Update(prev, ratingMap[r]);
+        try {
+          await sb.req("/card_progress", {
+            method: "POST",
+            headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify({
+              student_id: user.id,
+              deck_id: deck.id,
+              card_id: card.id,
+              interval: updated.interval,
+              ease: updated.ease,
+              repetitions: updated.repetitions,
+              due_date: updated.due,
+              updated_at: new Date().toISOString()
+            })
+          }, user.token);
+        } catch(e) { /* silent fail, don't block student */ }
         if (cardIndex + 1 >= cards.length) { setFinished(true); }
         else { setCardIndex(i => i + 1); setAnswer(""); setEvaluation(null); setPhase("question"); }
       }
@@ -554,8 +590,29 @@ easy=75-100, hard=40-74, again=0-39`;
       async function loadAssignments() {
         setLoading(true);
         try {
-          const data = await sb.req(`/assignments?student_id=eq.${user.id}&order=assigned_at.desc`, {}, user.token);
-          setAssignments(data || []);
+          const [data, progress] = await Promise.all([
+            sb.req(`/assignments?student_id=eq.${user.id}&order=assigned_at.desc`, {}, user.token),
+            sb.req(`/card_progress?student_id=eq.${user.id}`, {}, user.token),
+          ]);
+          const assignments = data || [];
+          const progressMap = {};
+          (progress || []).forEach(p => {
+            if (!progressMap[p.deck_id]) progressMap[p.deck_id] = {};
+            progressMap[p.deck_id][p.card_id] = p;
+          });
+          // Add due card count to each assignment
+          const now = new Date();
+          const withDue = assignments.map(a => {
+            const cards = a.cards || [];
+            const deckProgress = progressMap[a.deck_id] || {};
+            const dueCards = cards.filter(c => {
+              const cp = deckProgress[c.id];
+              if (!cp) return true; // never studied = due
+              return new Date(cp.due_date) <= now;
+            });
+            return { ...a, dueCount: dueCards.length, dueCards };
+          });
+          setAssignments(withDue);
         } catch (e) {}
         setLoading(false);
       }
@@ -568,7 +625,7 @@ easy=75-100, hard=40-74, again=0-39`;
         } catch (e) { showToast("Error saving progress", "error"); }
       }
 
-      if (activeStudy) return <StudySession deck={activeStudy.deck} onFinish={(completed) => { setActiveStudy(null); if (completed) markComplete(activeStudy.id); }} />;
+      if (activeStudy) return <StudySession deck={activeStudy.deck} user={user} onFinish={(completed) => { setActiveStudy(null); if (completed) markComplete(activeStudy.id); }} />;
 
       const pending = assignments.filter(a => a.status !== "completed");
       const done = assignments.filter(a => a.status === "completed");
@@ -598,11 +655,12 @@ easy=75-100, hard=40-74, again=0-39`;
                         <div style={{ padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
                             <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{a.deck_name}</div>
-                            <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Assigned by your teacher</div>
+                            <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{a.dueCount > 0 ? `${a.dueCount} cards due today` : "No cards due · check back tomorrow"}</div>
                           </div>
-                          <button onClick={() => setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: a.cards || [] } })}
-                            style={{ background: COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-                            Study →
+                          <button onClick={() => setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: a.dueCards || a.cards || [] } })}
+                            style={{ background: a.dueCount === 0 ? C.muted : COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: a.dueCount === 0 ? "not-allowed" : "pointer" }}
+                            disabled={a.dueCount === 0}>
+                            {a.dueCount === 0 ? "All done ✓" : `Study ${a.dueCount} cards →`}
                           </button>
                         </div>
                       </div>

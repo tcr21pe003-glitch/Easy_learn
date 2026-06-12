@@ -1,0 +1,749 @@
+import { useState, useEffect, useRef } from "react";
+
+// ── Supabase config ───────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://vvrxxpaaekrxcahvoace.supabase.co";
+const SUPABASE_KEY = "sb_publishable_88lEXaQKkJ-A0q3DD7QHEg__g3rVdIk";
+
+const sb = {
+  async request(path, options = {}) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+      ...options,
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+        ...options.headers,
+      },
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err);
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+
+  async signUp(email, password, name, role) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, options: { data: { name, role } } }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || data.msg);
+    return data;
+  },
+
+  async signIn(email, password) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || data.msg || "Login failed");
+    return data;
+  },
+
+  async authRequest(path, options = {}, token) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+      ...options,
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+        ...options.headers,
+      },
+    });
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+};
+
+// ── SM-2 algorithm ────────────────────────────────────────────────────────────
+function sm2Update(card, rating) {
+  let { interval = 1, ease = 2.5, repetitions = 0 } = card;
+  if (rating < 3) { repetitions = 0; interval = 1; }
+  else {
+    if (repetitions === 0) interval = 1;
+    else if (repetitions === 1) interval = 6;
+    else interval = Math.round(interval * ease);
+    repetitions += 1;
+  }
+  ease = Math.max(1.3, ease + 0.1 - (5 - rating) * (0.08 + (5 - rating) * 0.02));
+  const due = new Date();
+  due.setDate(due.getDate() + interval);
+  return { interval, ease, repetitions, due: due.toISOString() };
+}
+
+// ── Colors ────────────────────────────────────────────────────────────────────
+const C = {
+  navy: "#1B2B5E",
+  gold: "#D4A843",
+  white: "#FFFFFF",
+  bg: "#F4F6FB",
+  card: "#FFFFFF",
+  border: "#E4E9F2",
+  text: "#1B2B5E",
+  muted: "#7A8AAD",
+  green: "#059669",
+  amber: "#D97706",
+  red: "#DC2626",
+};
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({ msg, type }) {
+  if (!msg) return null;
+  const bg = type === "error" ? C.red : C.green;
+  return (
+    <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: bg, color: "white", padding: "12px 24px", borderRadius: 10, fontSize: 14, fontWeight: 600, zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,0.2)" }}>
+      {msg}
+    </div>
+  );
+}
+
+// ── Login Screen ──────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState("login"); // login | signup
+  const [role, setRole] = useState("student");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  function showToast(msg, type = "error") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  async function handleSubmit() {
+    if (!email || !password || (mode === "signup" && !name)) {
+      showToast("Please fill all fields");
+      return;
+    }
+    setLoading(true);
+    try {
+      if (mode === "signup") {
+        await sb.signUp(email, password, name, role);
+        showToast("Account created! Please log in.", "success");
+        setMode("login");
+      } else {
+        const data = await sb.signIn(email, password);
+        const userRole = data.user?.user_metadata?.role || "student";
+        const userName = data.user?.user_metadata?.name || email;
+        onLogin({ token: data.access_token, role: userRole, name: userName, id: data.user.id, email });
+      }
+    } catch (e) {
+      showToast(e.message);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.navy, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      {/* Logo */}
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 4, color: C.gold, marginBottom: 8 }}>EASY LEARN</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: C.white, lineHeight: 1.2 }}>Smart Study,<br />Better Results.</div>
+      </div>
+
+      {/* Card */}
+      <div style={{ background: C.white, borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        {/* Tabs */}
+        <div style={{ display: "flex", background: C.bg, borderRadius: 10, padding: 4, marginBottom: 24 }}>
+          {["login", "signup"].map(m => (
+            <button key={m} onClick={() => setMode(m)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", background: mode === m ? C.navy : "transparent", color: mode === m ? C.white : C.muted, fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "capitalize" }}>
+              {m === "login" ? "Log In" : "Sign Up"}
+            </button>
+          ))}
+        </div>
+
+        {mode === "signup" && (
+          <>
+            <label style={styles.label}>Full Name</label>
+            <input style={styles.input} placeholder="e.g. Arjun Nair" value={name} onChange={e => setName(e.target.value)} />
+
+            <label style={styles.label}>I am a</label>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              {["student", "teacher"].map(r => (
+                <button key={r} onClick={() => setRole(r)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `2px solid ${role === r ? C.navy : C.border}`, background: role === r ? C.navy : "white", color: role === r ? "white" : C.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", textTransform: "capitalize" }}>
+                  {r === "teacher" ? "👨‍🏫 Teacher" : "📚 Student"}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <label style={styles.label}>Email</label>
+        <input style={styles.input} type="email" placeholder="you@email.com" value={email} onChange={e => setEmail(e.target.value)} />
+
+        <label style={styles.label}>Password</label>
+        <input style={styles.input} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+
+        <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? C.muted : C.navy, color: "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", marginTop: 8 }}>
+          {loading ? "Please wait..." : mode === "login" ? "Log In →" : "Create Account →"}
+        </button>
+      </div>
+
+      <div style={{ color: C.muted, fontSize: 12, marginTop: 24, opacity: 0.6 }}>Easy Learn · Kerala's Smartest Study App</div>
+    </div>
+  );
+}
+
+// ── Teacher Dashboard ─────────────────────────────────────────────────────────
+function TeacherDashboard({ user, onLogout }) {
+  const [view, setView] = useState("home"); // home | upload | students | assign
+  const [decks, setDecks] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Upload state
+  const [deckName, setDeckName] = useState("");
+  const [subject, setSubject] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [parsedCards, setParsedCards] = useState([]);
+
+  // Assign state
+  const [selectedDeck, setSelectedDeck] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  function showToast(msg, type = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    try {
+      const [d, s, a] = await Promise.all([
+        sb.authRequest(`/decks?teacher_id=eq.${user.id}&order=created_at.desc`, {}, user.token),
+        sb.authRequest(`/profiles?role=eq.student&order=name.asc`, {}, user.token),
+        sb.authRequest(`/assignments?teacher_id=eq.${user.id}&order=assigned_at.desc`, {}, user.token),
+      ]);
+      setDecks(d || []);
+      setStudents(s || []);
+      setAssignments(a || []);
+    } catch (e) { /* tables may not exist yet */ }
+  }
+
+  function parseCSV(text) {
+    const lines = text.trim().split("\n").filter(l => l.trim());
+    return lines.map((line, i) => {
+      const tab = line.indexOf("\t");
+      if (tab > -1) return { id: i, question: line.slice(0, tab).trim(), answer: line.slice(tab + 1).trim() };
+      const comma = line.indexOf(",");
+      return { id: i, question: line.slice(0, comma).trim(), answer: line.slice(comma + 1).trim() };
+    }).filter(c => c.question && c.answer);
+  }
+
+  function handleCSVInput(text) {
+    setCsvText(text);
+    setParsedCards(parseCSV(text));
+  }
+
+  async function uploadDeck() {
+    if (!deckName || !subject || parsedCards.length === 0) { showToast("Fill all fields and paste CSV", "error"); return; }
+    setLoading(true);
+    try {
+      const deck = await sb.authRequest("/decks", {
+        method: "POST",
+        body: JSON.stringify({ name: deckName, subject, teacher_id: user.id, card_count: parsedCards.length, cards: parsedCards }),
+      }, user.token);
+      showToast(`Deck "${deckName}" uploaded with ${parsedCards.length} cards`);
+      setDeckName(""); setSubject(""); setCsvText(""); setParsedCards([]);
+      loadData();
+      setView("home");
+    } catch (e) { showToast("Upload failed: " + e.message, "error"); }
+    setLoading(false);
+  }
+
+  async function assignDeck() {
+    if (!selectedDeck || !selectedStudent) { showToast("Select a deck and student", "error"); return; }
+    setLoading(true);
+    try {
+      await sb.authRequest("/assignments", {
+        method: "POST",
+        body: JSON.stringify({ deck_id: selectedDeck.id, student_id: selectedStudent.id, teacher_id: user.id, deck_name: selectedDeck.name, student_name: selectedStudent.name, status: "assigned" }),
+      }, user.token);
+      showToast(`Deck assigned to ${selectedStudent.name}`);
+      setSelectedDeck(null); setSelectedStudent(null);
+      loadData();
+      setView("home");
+    } catch (e) { showToast("Assign failed: " + e.message, "error"); }
+    setLoading(false);
+  }
+
+  const DECK_COLORS = ["#1B2B5E", "#059669", "#DC2626", "#7C3AED", "#D97706", "#0891B2"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      {/* Header */}
+      <div style={{ background: C.navy, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 3, color: C.gold }}>EASY LEARN</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "white" }}>Teacher Dashboard</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{user.name}</div>
+          <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "white", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>Logout</button>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{ background: "white", borderBottom: `1px solid ${C.border}`, display: "flex", overflowX: "auto" }}>
+        {[["home","🏠 Home"], ["upload","⬆️ Upload Deck"], ["assign","📋 Assign"], ["students","👥 Students"]].map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)} style={{ padding: "14px 20px", border: "none", background: "none", color: view === v ? C.navy : C.muted, fontWeight: view === v ? 700 : 500, fontSize: 13, cursor: "pointer", borderBottom: view === v ? `3px solid ${C.navy}` : "3px solid transparent", whiteSpace: "nowrap" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: "20px 20px", maxWidth: 700, margin: "0 auto" }}>
+
+        {/* HOME */}
+        {view === "home" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
+              {[
+                { label: "Decks", value: decks.length, icon: "📚" },
+                { label: "Students", value: students.length, icon: "👥" },
+                { label: "Assigned", value: assignments.length, icon: "📋" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "white", borderRadius: 12, padding: "16px 12px", textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 22 }}>{s.icon}</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.navy }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.sectionTitle}>Recent Assignments</div>
+            {assignments.length === 0 ? (
+              <div style={styles.empty}>No assignments yet. Upload a deck and assign it to a student.</div>
+            ) : assignments.slice(0, 5).map((a, i) => (
+              <div key={i} style={styles.listItem}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{a.deck_name}</div>
+                  <div style={{ fontSize: 12, color: C.muted }}>→ {a.student_name}</div>
+                </div>
+                <div style={{ ...styles.badge, background: a.status === "completed" ? "#d1fae5" : "#fef3c7", color: a.status === "completed" ? C.green : C.amber }}>
+                  {a.status === "completed" ? "✅ Done" : "⏳ Pending"}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* UPLOAD */}
+        {view === "upload" && (
+          <>
+            <div style={styles.sectionTitle}>Upload Deck from Anki</div>
+            <div style={styles.card}>
+              <label style={styles.label}>Deck Name</label>
+              <input style={styles.input} placeholder="e.g. Cell Biology - Chapter 3" value={deckName} onChange={e => setDeckName(e.target.value)} />
+
+              <label style={styles.label}>Subject</label>
+              <input style={styles.input} placeholder="e.g. Biology, Chemistry, Physics" value={subject} onChange={e => setSubject(e.target.value)} />
+
+              <label style={styles.label}>Paste Anki CSV Export</label>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>In Anki: File → Export → Notes in Plain Text (.txt) → paste here</div>
+              <textarea
+                style={{ ...styles.input, minHeight: 120, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                placeholder={"What is mitochondria?\tPowerhouse of the cell, produces ATP\nWhat is DNA?\tDeoxyribonucleic acid, carries genetic info"}
+                value={csvText}
+                onChange={e => handleCSVInput(e.target.value)}
+              />
+
+              {parsedCards.length > 0 && (
+                <div style={{ background: "#d1fae5", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: C.green, fontWeight: 600 }}>
+                  ✅ {parsedCards.length} cards detected — preview:
+                  <div style={{ fontWeight: 400, color: "#065f46", marginTop: 4 }}>Q: {parsedCards[0].question}</div>
+                </div>
+              )}
+
+              <button onClick={uploadDeck} disabled={loading} style={{ ...styles.primaryBtn, opacity: loading ? 0.6 : 1 }}>
+                {loading ? "Uploading..." : `Upload ${parsedCards.length > 0 ? parsedCards.length + " Cards" : "Deck"}`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ASSIGN */}
+        {view === "assign" && (
+          <>
+            <div style={styles.sectionTitle}>Assign Deck to Student</div>
+            <div style={styles.card}>
+              <label style={styles.label}>Select Deck</label>
+              {decks.length === 0 ? <div style={styles.empty}>No decks yet. Upload one first.</div> : decks.map((d, i) => (
+                <div key={d.id} onClick={() => setSelectedDeck(d)} style={{ ...styles.listItem, border: `2px solid ${selectedDeck?.id === d.id ? C.navy : C.border}`, marginBottom: 8, cursor: "pointer", borderRadius: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: DECK_COLORS[i % DECK_COLORS.length], marginRight: 10, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{d.subject} · {d.card_count} cards</div>
+                  </div>
+                  {selectedDeck?.id === d.id && <div style={{ color: C.navy, fontWeight: 700 }}>✓</div>}
+                </div>
+              ))}
+
+              <label style={{ ...styles.label, marginTop: 16 }}>Select Student</label>
+              {students.length === 0 ? <div style={styles.empty}>No students signed up yet.</div> : students.map(s => (
+                <div key={s.id} onClick={() => setSelectedStudent(s)} style={{ ...styles.listItem, border: `2px solid ${selectedStudent?.id === s.id ? C.navy : C.border}`, marginBottom: 8, cursor: "pointer", borderRadius: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.navy, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, marginRight: 10 }}>
+                    {s.name?.[0]?.toUpperCase() || "S"}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{s.email}</div>
+                  </div>
+                  {selectedStudent?.id === s.id && <div style={{ color: C.navy, fontWeight: 700 }}>✓</div>}
+                </div>
+              ))}
+
+              <button onClick={assignDeck} disabled={loading || !selectedDeck || !selectedStudent} style={{ ...styles.primaryBtn, opacity: (!selectedDeck || !selectedStudent || loading) ? 0.5 : 1, marginTop: 16 }}>
+                {loading ? "Assigning..." : "Assign Deck →"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* STUDENTS */}
+        {view === "students" && (
+          <>
+            <div style={styles.sectionTitle}>All Students</div>
+            {students.length === 0 ? (
+              <div style={styles.empty}>No students yet. Share the app link so they can sign up.</div>
+            ) : students.map(s => {
+              const studentAssignments = assignments.filter(a => a.student_id === s.id);
+              const completed = studentAssignments.filter(a => a.status === "completed").length;
+              return (
+                <div key={s.id} style={{ ...styles.card, marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.navy, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16 }}>
+                      {s.name?.[0]?.toUpperCase() || "S"}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{s.name}</div>
+                      <div style={{ fontSize: 12, color: C.muted }}>{s.email}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                    <div style={styles.miniStat}><span style={{ fontWeight: 800, color: C.navy }}>{studentAssignments.length}</span> assigned</div>
+                    <div style={styles.miniStat}><span style={{ fontWeight: 800, color: C.green }}>{completed}</span> completed</div>
+                    <div style={styles.miniStat}><span style={{ fontWeight: 800, color: C.amber }}>{studentAssignments.length - completed}</span> pending</div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ── Student App ───────────────────────────────────────────────────────────────
+function StudentApp({ user, onLogout }) {
+  const [assignments, setAssignments] = useState([]);
+  const [activeStudy, setActiveStudy] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  function showToast(msg, type = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  useEffect(() => { loadAssignments(); }, []);
+
+  async function loadAssignments() {
+    setLoading(true);
+    try {
+      const data = await sb.authRequest(`/assignments?student_id=eq.${user.id}&order=assigned_at.desc`, {}, user.token);
+      setAssignments(data || []);
+    } catch (e) { /* silent */ }
+    setLoading(false);
+  }
+
+  async function markComplete(assignmentId) {
+    try {
+      await sb.authRequest(`/assignments?id=eq.${assignmentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }),
+      }, user.token);
+      showToast("Deck completed! Your teacher will assign the next one.");
+      loadAssignments();
+    } catch (e) { showToast("Error saving progress", "error"); }
+  }
+
+  if (activeStudy) {
+    return <StudySession deck={activeStudy.deck} assignmentId={activeStudy.id} onFinish={(completed) => {
+      setActiveStudy(null);
+      if (completed) markComplete(activeStudy.id);
+    }} />;
+  }
+
+  const pending = assignments.filter(a => a.status !== "completed");
+  const done = assignments.filter(a => a.status === "completed");
+  const DECK_COLORS = ["#1B2B5E", "#059669", "#DC2626", "#7C3AED", "#D97706", "#0891B2"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      <div style={{ background: C.navy, padding: "16px 20px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 3, color: C.gold }}>EASY LEARN</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "white" }}>Hi, {user.name.split(" ")[0]} 👋</div>
+          <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "white", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>Logout</button>
+        </div>
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{pending.length} deck{pending.length !== 1 ? "s" : ""} to study</div>
+      </div>
+
+      <div style={{ padding: "20px 20px", maxWidth: 600, margin: "0 auto" }}>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 40, color: C.muted }}>Loading your decks...</div>
+        ) : (
+          <>
+            {pending.length > 0 && (
+              <>
+                <div style={styles.sectionTitle}>Study Now</div>
+                {pending.map((a, i) => (
+                  <div key={a.id} style={{ background: "white", borderRadius: 14, marginBottom: 14, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" }}>
+                    <div style={{ height: 5, background: DECK_COLORS[i % DECK_COLORS.length] }} />
+                    <div style={{ padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{a.deck_name}</div>
+                        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Assigned by your teacher</div>
+                      </div>
+                      <button onClick={() => setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: DECK_COLORS[i % DECK_COLORS.length], cards: a.cards || [] } })}
+                        style={{ background: DECK_COLORS[i % DECK_COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                        Study →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {pending.length === 0 && (
+              <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>All caught up!</div>
+                <div style={{ fontSize: 14, color: C.muted, marginTop: 8 }}>Your teacher will assign new decks soon.</div>
+              </div>
+            )}
+
+            {done.length > 0 && (
+              <>
+                <div style={{ ...styles.sectionTitle, marginTop: 24 }}>Completed</div>
+                {done.map(a => (
+                  <div key={a.id} style={{ ...styles.listItem, background: "white", borderRadius: 10, marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: C.muted, textDecoration: "line-through" }}>{a.deck_name}</div>
+                    </div>
+                    <div style={{ ...styles.badge, background: "#d1fae5", color: C.green }}>✅ Done</div>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Study Session ─────────────────────────────────────────────────────────────
+function StudySession({ deck, assignmentId, onFinish }) {
+  const [cards] = useState(deck.cards || []);
+  const [cardIndex, setCardIndex] = useState(0);
+  const [phase, setPhase] = useState("question");
+  const [answer, setAnswer] = useState("");
+  const [evaluation, setEvaluation] = useState(null);
+  const [stats, setStats] = useState({ easy: 0, hard: 0, again: 0 });
+  const [finished, setFinished] = useState(false);
+  const textareaRef = useRef(null);
+
+  useEffect(() => { if (phase === "typing" && textareaRef.current) textareaRef.current.focus(); }, [phase]);
+
+  if (cards.length === 0) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", padding: 24 }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards in this deck yet</div>
+        <div style={{ fontSize: 14, color: C.muted, marginTop: 8, marginBottom: 24 }}>Your teacher hasn't added cards to this deck.</div>
+        <button onClick={() => onFinish(false)} style={styles.primaryBtn}>Go Back</button>
+      </div>
+    );
+  }
+
+  const card = cards[cardIndex];
+  const progress = (cardIndex / cards.length) * 100;
+
+  async function evaluateAnswer() {
+    if (!answer.trim()) return;
+    setPhase("evaluating");
+    const prompt = `You are an expert teacher. Evaluate the student's answer.
+Question: "${card.question}"
+Model Answer: "${card.answer}"
+Student's Answer: "${answer}"
+Respond ONLY in JSON: {"rating":"easy"|"hard"|"again","score":0-100,"feedback":"2-3 sentences","missed":"key concept missed or null"}
+Rating: easy=75-100, hard=40-74, again=0-39`;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const text = data.content.map(i => i.text || "").join("");
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setEvaluation(parsed);
+      setPhase("result");
+    } catch {
+      setEvaluation({ rating: "hard", score: 50, feedback: "Could not evaluate. Review your answer.", missed: null });
+      setPhase("result");
+    }
+  }
+
+  function handleRating(r) {
+    const map = { easy: 5, hard: 3, again: 0 };
+    setStats(s => ({ ...s, [r]: s[r] + 1 }));
+    if (cardIndex + 1 >= cards.length) { setFinished(true); }
+    else { setCardIndex(i => i + 1); setAnswer(""); setEvaluation(null); setPhase("question"); }
+  }
+
+  const RC = { easy: C.green, hard: C.amber, again: C.red };
+  const RL = { easy: "✅ Easy", hard: "⚠️ Hard", again: "🔁 Again" };
+
+  if (finished) return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", padding: 24 }}>
+      <div style={{ background: "white", borderRadius: 20, padding: 36, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+        <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: C.text }}>Deck Complete!</h2>
+        <p style={{ color: C.muted, fontSize: 14, marginBottom: 24 }}>{deck.name}</p>
+        <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+          {Object.entries(stats).map(([k, v]) => (
+            <div key={k} style={{ flex: 1, background: RC[k] + "15", borderRadius: 10, padding: "12px 8px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: RC[k] }}>{v}</div>
+              <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "capitalize" }}>{k}</div>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => onFinish(true)} style={styles.primaryBtn}>Mark as Complete →</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div style={{ background: C.navy, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <button onClick={() => onFinish(false)} style={{ background: "none", border: "none", color: C.gold, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>← Back</button>
+        <div style={{ color: "white", fontWeight: 700, fontSize: 14 }}>{deck.name}</div>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>{cardIndex + 1}/{cards.length}</div>
+      </div>
+      <div style={{ height: 4, background: "#e2e8f0" }}>
+        <div style={{ height: "100%", background: deck.color, width: `${progress}%`, transition: "width 0.4s" }} />
+      </div>
+
+      <div style={{ padding: "20px 20px", maxWidth: 600, margin: "0 auto" }}>
+        <div style={{ background: "white", borderRadius: 14, padding: 20, marginBottom: 16, borderLeft: `4px solid ${deck.color}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.muted, marginBottom: 10 }}>QUESTION</div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: C.text, lineHeight: 1.5 }}>{card.question}</div>
+        </div>
+
+        {phase === "question" && (
+          <button onClick={() => setPhase("typing")} style={styles.primaryBtn}>Write My Answer</button>
+        )}
+
+        {phase === "typing" && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 8 }}>Your Answer</div>
+            <textarea ref={textareaRef} style={{ ...styles.input, minHeight: 120, resize: "vertical" }} value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Type your answer..." />
+            <button onClick={evaluateAnswer} disabled={!answer.trim()} style={{ ...styles.primaryBtn, opacity: answer.trim() ? 1 : 0.5 }}>Submit Answer →</button>
+          </div>
+        )}
+
+        {phase === "evaluating" && (
+          <div style={{ background: "white", borderRadius: 14, padding: 32, textAlign: "center" }}>
+            <div style={{ width: 32, height: 32, border: `3px solid ${C.border}`, borderTop: `3px solid ${C.navy}`, borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+            <div style={{ color: C.muted, fontSize: 14 }}>Evaluating your answer...</div>
+          </div>
+        )}
+
+        {phase === "result" && evaluation && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ background: RC[evaluation.rating] + "20", color: RC[evaluation.rating], border: `1.5px solid ${RC[evaluation.rating]}`, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
+                {RL[evaluation.rating]}
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: C.text }}>{evaluation.score}<span style={{ fontSize: 13, color: C.muted }}>/100</span></div>
+            </div>
+
+            <div style={{ background: "white", borderRadius: 14, padding: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.muted, marginBottom: 8 }}>FEEDBACK</div>
+              <div style={{ fontSize: 14, color: "#334155", lineHeight: 1.6 }}>{evaluation.feedback}</div>
+              {evaluation.missed && <div style={{ marginTop: 10, background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#92400e" }}>💡 Missed: <strong>{evaluation.missed}</strong></div>}
+            </div>
+
+            <details style={{ background: "#f8fafc", border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+              <summary style={{ fontSize: 13, fontWeight: 600, color: C.navy, cursor: "pointer" }}>See model answer</summary>
+              <div style={{ marginTop: 10, fontSize: 14, color: "#334155", lineHeight: 1.6 }}>{card.answer}</div>
+            </details>
+
+            <div style={{ background: "white", borderRadius: 14, padding: 16 }}>
+              <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 12 }}>AI rated: <strong>{evaluation.rating}</strong> — confirm or override</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["again", "hard", "easy"].map(r => (
+                  <button key={r} onClick={() => handleRating(r)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: `2px solid ${RC[r]}`, background: evaluation.rating === r ? RC[r] : "white", color: evaluation.rating === r ? "white" : RC[r], fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    {RL[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Root App ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [user, setUser] = useState(null);
+
+  function handleLogin(userData) { setUser(userData); }
+  function handleLogout() { setUser(null); }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (user.role === "teacher") return <TeacherDashboard user={user} onLogout={handleLogout} />;
+  return <StudentApp user={user} onLogout={handleLogout} />;
+}
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const styles = {
+  label: { fontSize: 12, fontWeight: 600, color: C.muted, display: "block", marginBottom: 6, letterSpacing: 0.3 },
+  input: { width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "11px 14px", fontSize: 14, color: C.text, outline: "none", fontFamily: "inherit", background: "white", boxSizing: "border-box", marginBottom: 14 },
+  primaryBtn: { width: "100%", padding: "13px 0", background: C.navy, color: "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  card: { background: "white", borderRadius: 14, padding: "20px 18px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 },
+  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.muted, textTransform: "uppercase", marginBottom: 12 },
+  listItem: { display: "flex", alignItems: "center", padding: "12px 14px", background: "white", borderRadius: 10, gap: 10 },
+  badge: { padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600 },
+  empty: { color: C.muted, fontSize: 14, padding: "20px 0", textAlign: "center" },
+  miniStat: { flex: 1, background: C.bg, borderRadius: 8, padding: "8px 6px", textAlign: "center", fontSize: 12, color: C.muted },
+};
+
+const styleTag = document.createElement("style");
+styleTag.textContent = `@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; } body { margin: 0; }`;
+document.head.appendChild(styleTag);

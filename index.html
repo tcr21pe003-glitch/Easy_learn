@@ -391,17 +391,14 @@
         if (!SpeechRecognition) { alert("Voice not supported on this browser. Use Chrome."); return; }
         const recognition = new SpeechRecognition();
         recognition.lang = "en-IN";
-        recognition.continuous = true;
-        recognition.interimResults = true;
+        recognition.continuous = false;
+        recognition.interimResults = false;
         recognitionRef.current = recognition;
         recognition.onstart = () => setListening(true);
         recognition.onend = () => setListening(false);
         recognition.onresult = (e) => {
-          let transcript = "";
-          for (let i = 0; i < e.results.length; i++) {
-            transcript += e.results[i][0].transcript;
-          }
-          setAnswer(transcript);
+          const transcript = e.results[0][0].transcript;
+          setAnswer(prev => prev ? prev + " " + transcript : transcript);
         };
         recognition.start();
       }
@@ -533,14 +530,9 @@ easy=75-100, hard=40-74, again=0-39`;
                   <summary style={{ fontSize: 13, fontWeight: 600, color: C.navy, cursor: "pointer" }}>See model answer</summary>
                   <div style={{ marginTop: 10, fontSize: 14, color: "#334155", lineHeight: 1.6 }}>{card.answer}</div>
                 </details>
-                <div style={{ background: "white", borderRadius: 14, padding: 16 }}>
-                  <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 12 }}>AI rated: <strong>{evaluation.rating}</strong> — confirm or override</div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {["again","hard","easy"].map(r => (
-                      <button key={r} onClick={() => handleRating(r)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: `2px solid ${RC[r]}`, background: evaluation.rating === r ? RC[r] : "white", color: evaluation.rating === r ? "white" : RC[r], fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{RL[r]}</button>
-                    ))}
-                  </div>
-                </div>
+                <button onClick={() => handleRating(evaluation.rating)} style={{ ...S.primaryBtn, background: RC[evaluation.rating] }}>
+                  Next Question →
+                </button>
               </div>
             )}
           </div>

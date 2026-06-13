@@ -511,16 +511,8 @@
             } catch(e) {}
             setCardProgress(map);
 
-            // Step 3: Filter due cards — show all if none are due
-            const now = new Date();
-            const due = cards.filter(c => {
-              const cp = map[c.id];
-              if (!cp) return true;
-              return new Date(cp.due_date) <= now;
-            });
-
-            const finalQueue = due.length > 0 ? due : cards;
-            setQueue(finalQueue);
+            // Show all cards — FSRS handles scheduling, student sees full deck
+            setQueue(cards.length > 0 ? cards : []);
           } catch(e) {
             // Last resort — use whatever was passed
             setQueue(deck.cards || []);
@@ -569,6 +561,17 @@
       );
 
       const card = queue[cardIndex];
+
+      // Safety check — if card is undefined, something went wrong
+      if (!card) return (
+        <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Something went wrong</div>
+          <div style={{ fontSize: 14, color: C.muted, marginTop: 8, marginBottom: 20 }}>Card could not be loaded.</div>
+          <button onClick={() => { if (onFinish) onFinish("back"); }} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px" }}>← Go Back</button>
+        </div>
+      );
+
       const progress = (cardIndex / queue.length) * 100;
       const RC = { easy: C.green, hard: C.amber, again: C.red };
       const RL = { easy: "✅ Easy", hard: "⚠️ Hard", again: "🔁 Again" };

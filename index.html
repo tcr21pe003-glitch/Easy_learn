@@ -482,24 +482,11 @@
       useEffect(() => { if (phase === "typing" && textareaRef.current) textareaRef.current.focus(); }, [phase]);
 
       useEffect(() => {
-        async function loadAll() {
-          setLoadingCards(true);
-          try {
-            // Fetch directly from decks table — most reliable source
-            const deckData = await sb.req(`/decks?id=eq.${deck.id}&select=cards`, {}, user.token);
-            let cards = [];
-            if (deckData && deckData[0] && deckData[0].cards && deckData[0].cards.length > 0) {
-              cards = deckData[0].cards;
-            } else if (deck.cards && deck.cards.length > 0) {
-              cards = deck.cards;
-            }
-            setQueue(cards);
-          } catch(e) {
-            setQueue(deck.cards && deck.cards.length > 0 ? deck.cards : []);
-          }
-          setLoadingCards(false);
+        // Cards already fetched before StudySession mounts — just use them
+        if (deck.cards && deck.cards.length > 0) {
+          setQueue(deck.cards);
         }
-        loadAll();
+        setLoadingCards(false);
       }, []);
 
       function startVoice() {
@@ -905,15 +892,18 @@ easy=75-100, hard=40-74, again=0-39`;
                             <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{a.dueCount > 0 ? `${a.dueCount} cards due today` : "All reviewed · tap to study again"}</div>
                           </div>
                           <button onClick={async () => {
-                              // Always fetch fresh cards from decks table to avoid blank screen
-                              let cards = a.dueCards && a.dueCards.length > 0 ? a.dueCards : a.cards || [];
-                              if (cards.length === 0) {
-                                try {
-                                  const deckData = await sb.req(`/decks?id=eq.${a.deck_id}`, {}, user.token);
-                                  if (deckData && deckData[0]) cards = deckData[0].cards || [];
-                                } catch(e) {}
-                              }
-                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, assignmentId: a.id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: cards } });
+                              // Fetch fresh from decks table directly — most reliable
+                              let cards = [];
+                              try {
+                                const res = await sb.req(`/decks?id=eq.${a.deck_id}`, {}, user.token);
+                                if (res && res[0] && res[0].cards && res[0].cards.length > 0) {
+                                  cards = res[0].cards;
+                                }
+                              } catch(e) {}
+                              // Final fallback
+                              if (cards.length === 0) cards = a.cards || [];
+                              if (cards.length === 0) { alert("No cards found in this deck. Ask your teacher."); return; }
+                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards } });
                             }}
                             style={{ background: COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                             {a.dueCount === 0 ? "Review All →" : `Study ${a.dueCount} cards →`}

@@ -485,37 +485,17 @@
         async function loadAll() {
           setLoadingCards(true);
           try {
-            // Step 1: Get cards — try passed cards first, then fetch from assignments, then from decks
+            // Fetch directly from decks table — most reliable source
+            const deckData = await sb.req(`/decks?id=eq.${deck.id}&select=cards`, {}, user.token);
             let cards = [];
-            if (deck.cards && deck.cards.length > 0) {
+            if (deckData && deckData[0] && deckData[0].cards && deckData[0].cards.length > 0) {
+              cards = deckData[0].cards;
+            } else if (deck.cards && deck.cards.length > 0) {
               cards = deck.cards;
-            } else {
-              // Try assignments table first
-              const assignData = await sb.req(`/assignments?id=eq.${deck.assignmentId || "none"}`, {}, user.token);
-              if (assignData && assignData[0] && assignData[0].cards && assignData[0].cards.length > 0) {
-                cards = assignData[0].cards;
-              } else {
-                // Final fallback: fetch directly from decks table
-                const deckData = await sb.req(`/decks?id=eq.${deck.id}`, {}, user.token);
-                if (deckData && deckData[0] && deckData[0].cards) {
-                  cards = deckData[0].cards;
-                }
-              }
             }
-
-            // Step 2: Load FSRS progress
-            let map = {};
-            try {
-              const progressData = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
-              if (progressData) progressData.forEach(p => { map[p.card_id] = p; });
-            } catch(e) {}
-            setCardProgress(map);
-
-            // Show all cards — FSRS handles scheduling, student sees full deck
-            setQueue(cards.length > 0 ? cards : []);
+            setQueue(cards);
           } catch(e) {
-            // Last resort — use whatever was passed
-            setQueue(deck.cards || []);
+            setQueue(deck.cards && deck.cards.length > 0 ? deck.cards : []);
           }
           setLoadingCards(false);
         }

@@ -464,8 +464,7 @@
     }
 
     function StudySession({ deck, onFinish, user, streak = 0 }) {
-      const initialCards = deck.cards || [];
-      const [queue, setQueue] = useState([...initialCards]);
+      const [queue, setQueue] = useState([]);
       const [cardIndex, setCardIndex] = useState(0);
       const [phase, setPhase] = useState("question");
       const [answer, setAnswer] = useState("");
@@ -476,24 +475,41 @@
       const [listening, setListening] = useState(false);
       const [cardProgress, setCardProgress] = useState({});
       const [sessionStartTime] = useState(Date.now());
+      const [loadingCards, setLoadingCards] = useState(true);
       const textareaRef = useRef(null);
       const recognitionRef = useRef(null);
 
       useEffect(() => { if (phase === "typing" && textareaRef.current) textareaRef.current.focus(); }, [phase]);
 
       useEffect(() => {
-        async function loadProgress() {
-          if (!user) return;
+        async function loadAll() {
+          setLoadingCards(true);
           try {
-            const data = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
-            if (data) {
-              const map = {};
-              data.forEach(p => { map[p.card_id] = p; });
-              setCardProgress(map);
+            // Always fetch fresh cards from deck table
+            let cards = deck.cards || [];
+            if (cards.length === 0) {
+              const deckData = await sb.req(`/decks?id=eq.${deck.id}`, {}, user.token);
+              if (deckData && deckData[0]) cards = deckData[0].cards || [];
             }
-          } catch(e) {}
+            // Load FSRS progress
+            const progressData = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
+            const map = {};
+            if (progressData) progressData.forEach(p => { map[p.card_id] = p; });
+            setCardProgress(map);
+            // Filter due cards
+            const now = new Date();
+            const due = cards.filter(c => {
+              const cp = map[c.id];
+              if (!cp) return true;
+              return new Date(cp.due_date) <= now;
+            });
+            setQueue(due.length > 0 ? due : cards);
+          } catch(e) {
+            setQueue(deck.cards || []);
+          }
+          setLoadingCards(false);
         }
-        loadProgress();
+        loadAll();
       }, []);
 
       function startVoice() {
@@ -518,11 +534,19 @@
         setListening(false);
       }
 
-      if (initialCards.length === 0) return (
+      if (loadingCards) return (
+        <div style={{ minHeight: "100vh", background: C.navy, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ width: 40, height: 40, border: "3px solid rgba(255,255,255,0.2)", borderTop: "3px solid " + C.gold, borderRadius: "50%", animation: "spin 0.8s linear infinite", marginBottom: 16 }} />
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 15 }}>Loading cards...</div>
+        </div>
+      );
+
+      if (queue.length === 0) return (
         <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards in this deck yet</div>
-          <button onClick={() => onFinish("back")} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px", marginTop: 20 }}>Go Back</button>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards found</div>
+          <div style={{ fontSize: 14, color: C.muted, marginTop: 8, marginBottom: 20 }}>Ask your teacher to check this deck.</div>
+          <button onClick={() => onFinish("back")} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px" }}>Go Back</button>
         </div>
       );
 

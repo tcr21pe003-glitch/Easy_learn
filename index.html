@@ -348,14 +348,24 @@
                 </div>
                 <div style={S.sectionTitle}>Recent Assignments</div>
                 {assignments.length === 0 ? <div style={S.empty}>No assignments yet.</div> : assignments.slice(0,5).map((a,i) => (
-                  <div key={i} style={{ ...S.listItem, marginBottom: 8, borderRadius: 10 }}>
+                  <div key={i} style={{ ...S.listItem, marginBottom: 8, borderRadius: 10, background: "white" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{a.deck_name}</div>
                       <div style={{ fontSize: 12, color: C.muted }}>→ {a.student_name}</div>
                     </div>
-                    <div style={{ padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: a.status === "completed" ? "#d1fae5" : "#fef3c7", color: a.status === "completed" ? C.green : C.amber }}>
+                    <div style={{ padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: a.status === "completed" ? "#d1fae5" : "#fef3c7", color: a.status === "completed" ? C.green : C.amber, marginRight: 8 }}>
                       {a.status === "completed" ? "✅ Done" : "⏳ Pending"}
                     </div>
+                    <button onClick={async () => {
+                      if (!window.confirm(`Delete assignment "${a.deck_name}" for ${a.student_name}?`)) return;
+                      try {
+                        await sb.req(`/assignments?id=eq.${a.id}`, { method: "DELETE" }, user.token);
+                        showToast("Assignment deleted");
+                        loadData();
+                      } catch(e) { showToast("Delete failed", "error"); }
+                    }} style={{ background: "#fee2e2", border: "none", color: C.red, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      🗑
+                    </button>
                   </div>
                 ))}
               </>
@@ -512,7 +522,7 @@
         <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards in this deck yet</div>
-          <button onClick={() => onFinish(false)} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px", marginTop: 20 }}>Go Back</button>
+          <button onClick={() => onFinish("back")} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px", marginTop: 20 }}>Go Back</button>
         </div>
       );
 
@@ -644,7 +654,7 @@ easy=75-100, hard=40-74, again=0-39`;
                 </div>
               )}
 
-              <button onClick={() => onFinish(true)} style={S.primaryBtn}>Complete & Save →</button>
+              <button onClick={() => onFinish("complete")} style={S.primaryBtn}>Complete & Save →</button>
             </div>
           </div>
         );
@@ -653,7 +663,7 @@ easy=75-100, hard=40-74, again=0-39`;
       return (
         <div style={{ minHeight: "100vh", background: C.bg }}>
           <div style={{ background: C.navy, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <button onClick={() => onFinish(false)} style={{ background: "none", border: "none", color: C.gold, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>← Back</button>
+            <button onClick={() => onFinish("back")} style={{ background: "none", border: "none", color: C.gold, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>← Back</button>
             <div style={{ color: "white", fontWeight: 700, fontSize: 14 }}>{deck.name}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {streak > 0 && <div style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(255,255,255,0.12)", borderRadius: 20, padding: "3px 10px" }}><span>🔥</span><span style={{ fontSize: 13, fontWeight: 800, color: C.gold }}>{streak}</span></div>}
@@ -821,7 +831,7 @@ easy=75-100, hard=40-74, again=0-39`;
         } catch (e) { showToast("Error saving progress", "error"); }
       }
 
-      if (activeStudy) return <StudySession deck={activeStudy.deck} user={user} streak={streak} onFinish={(completed) => { setActiveStudy(null); updateStreak(); if (completed) markComplete(activeStudy.id); }} />;
+      if (activeStudy) return <StudySession deck={activeStudy.deck} user={user} streak={streak} onFinish={(action) => { setActiveStudy(null); if (action === "complete") { updateStreak(); markComplete(activeStudy.id); } else if (action === "streak") { updateStreak(); } }} />;
 
       const pending = assignments.filter(a => a.status !== "completed");
       const done = assignments.filter(a => a.status === "completed");
@@ -862,7 +872,17 @@ easy=75-100, hard=40-74, again=0-39`;
                             <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{a.deck_name}</div>
                             <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{a.dueCount > 0 ? `${a.dueCount} cards due today` : "No cards due · check back tomorrow"}</div>
                           </div>
-                          <button onClick={() => setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: a.dueCards || a.cards || [] } })}
+                          <button onClick={async () => {
+                              // Always fetch fresh cards from decks table to avoid blank screen
+                              let cards = a.dueCards && a.dueCards.length > 0 ? a.dueCards : a.cards || [];
+                              if (cards.length === 0) {
+                                try {
+                                  const deckData = await sb.req(`/decks?id=eq.${a.deck_id}`, {}, user.token);
+                                  if (deckData && deckData[0]) cards = deckData[0].cards || [];
+                                } catch(e) {}
+                              }
+                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards } });
+                            }}
                             style={{ background: a.dueCount === 0 ? C.muted : COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: a.dueCount === 0 ? "not-allowed" : "pointer" }}
                             disabled={a.dueCount === 0}>
                             {a.dueCount === 0 ? "All done ✓" : `Study ${a.dueCount} cards →`}

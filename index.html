@@ -855,7 +855,14 @@ easy=75-100, hard=40-74, again=0-39`;
         } catch (e) { showToast("Error saving progress", "error"); }
       }
 
-      if (activeStudy) return <StudySession deck={activeStudy.deck} user={user} streak={streak} onFinish={(action) => { setActiveStudy(null); if (action === "complete") { updateStreak(); markComplete(activeStudy.id); } else if (action === "streak") { updateStreak(); } }} />;
+      if (activeStudy) {
+        const currentStudy = activeStudy;
+        return <StudySession deck={currentStudy.deck} user={user} streak={streak} onFinish={(action) => {
+          setActiveStudy(null);
+          if (action === "complete") { updateStreak(); markComplete(currentStudy.id); }
+          else if (action === "streak") { updateStreak(); }
+        }} />;
+      }
 
       const pending = assignments.filter(a => a.status !== "completed");
       const done = assignments.filter(a => a.status === "completed");
@@ -905,7 +912,7 @@ easy=75-100, hard=40-74, again=0-39`;
                                   if (deckData && deckData[0]) cards = deckData[0].cards || [];
                                 } catch(e) {}
                               }
-                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards } });
+                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: cards } });
                             }}
                             style={{ background: a.dueCount === 0 ? C.muted : COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: a.dueCount === 0 ? "not-allowed" : "pointer" }}
                             disabled={a.dueCount === 0}>

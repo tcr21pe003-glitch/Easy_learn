@@ -373,15 +373,18 @@
     }
 
     function StudySession({ deck, onFinish, user, streak = 0 }) {
-      const cards = deck.cards || [];
+      const initialCards = deck.cards || [];
+      const [queue, setQueue] = useState([...initialCards]);
       const [cardIndex, setCardIndex] = useState(0);
       const [phase, setPhase] = useState("question");
       const [answer, setAnswer] = useState("");
       const [evaluation, setEvaluation] = useState(null);
       const [stats, setStats] = useState({ easy: 0, hard: 0, again: 0 });
+      const [totalAnswered, setTotalAnswered] = useState(0);
       const [finished, setFinished] = useState(false);
       const [listening, setListening] = useState(false);
       const [cardProgress, setCardProgress] = useState({});
+      const [sessionStartTime] = useState(Date.now());
       const textareaRef = useRef(null);
       const recognitionRef = useRef(null);
 
@@ -424,7 +427,7 @@
         setListening(false);
       }
 
-      if (cards.length === 0) return (
+      if (initialCards.length === 0) return (
         <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards in this deck yet</div>
@@ -432,8 +435,8 @@
         </div>
       );
 
-      const card = cards[cardIndex];
-      const progress = (cardIndex / cards.length) * 100;
+      const card = queue[cardIndex];
+      const progress = (cardIndex / queue.length) * 100;
       const RC = { easy: C.green, hard: C.amber, again: C.red };
       const RL = { easy: "✅ Easy", hard: "⚠️ Hard", again: "🔁 Again" };
 
@@ -464,6 +467,7 @@ easy=75-100, hard=40-74, again=0-39`;
 
       async function handleRating(r) {
         setStats(s => ({ ...s, [r]: s[r] + 1 }));
+        setTotalAnswered(t => t + 1);
         // Save SM-2 progress to Supabase
         const ratingMap = { easy: 5, hard: 3, again: 0 };
         const prev = cardProgress[card.id] || { interval: 1, ease: 2.5, repetitions: 0 };
@@ -483,29 +487,86 @@ easy=75-100, hard=40-74, again=0-39`;
               updated_at: new Date().toISOString()
             })
           }, user.token);
-        } catch(e) { /* silent fail, don't block student */ }
-        if (cardIndex + 1 >= cards.length) { setFinished(true); }
-        else { setCardIndex(i => i + 1); setAnswer(""); setEvaluation(null); setPhase("question"); }
+        } catch(e) {}
+
+        if (r === "again") {
+          // Add card back to end of queue — keep repeating until correct
+          const newQueue = [...queue];
+          newQueue.push({ ...card, isRepeat: true });
+          setQueue(newQueue);
+        }
+
+        const nextIndex = cardIndex + 1;
+        // Only finish when we've gone through entire queue including repeats
+        if (nextIndex >= queue.length && r !== "again") {
+          setFinished(true);
+        } else if (nextIndex >= queue.length) {
+          // Card was added back, move to it
+          setCardIndex(nextIndex);
+          setAnswer(""); setEvaluation(null); setPhase("question");
+        } else {
+          setCardIndex(nextIndex);
+          setAnswer(""); setEvaluation(null); setPhase("question");
+        }
       }
 
-      if (finished) return (
-        <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div style={{ background: "white", borderRadius: 20, padding: 36, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
-            <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: C.text }}>Deck Complete!</h2>
-            <p style={{ color: C.muted, fontSize: 14, marginBottom: 24 }}>{deck.name}</p>
-            <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-              {Object.entries(stats).map(([k,v]) => (
-                <div key={k} style={{ flex: 1, background: RC[k] + "15", borderRadius: 10, padding: "12px 8px" }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: RC[k] }}>{v}</div>
-                  <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "capitalize" }}>{k}</div>
+      if (finished) {
+        const mins = Math.round((Date.now() - sessionStartTime) / 60000);
+        const accuracy = totalAnswered > 0 ? Math.round((stats.easy + stats.hard) / totalAnswered * 100) : 0;
+        const newStreak = streak + 1;
+        return (
+          <div style={{ minHeight: "100vh", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <div style={{ background: "white", borderRadius: 24, padding: "32px 24px", maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+              <div style={{ textAlign: "center", marginBottom: 24 }}>
+                <div style={{ fontSize: 52, marginBottom: 8 }}>🎉</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Session Complete!</div>
+                <div style={{ fontSize: 14, color: C.muted, marginTop: 4 }}>{deck.name}</div>
+              </div>
+
+              {/* Main stats */}
+              <div style={{ background: C.bg, borderRadius: 16, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.muted, marginBottom: 12 }}>TODAY'S SESSION</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ background: "white", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.navy }}>{initialCards.length}</div>
+                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Cards Reviewed</div>
+                  </div>
+                  <div style={{ background: "white", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.green }}>{accuracy}%</div>
+                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Accuracy</div>
+                  </div>
+                  <div style={{ background: "white", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.amber }}>{mins} min</div>
+                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Time Spent</div>
+                  </div>
+                  <div style={{ background: "white", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.gold }}>🔥 {streak}</div>
+                    <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Day Streak</div>
+                  </div>
                 </div>
-              ))}
+              </div>
+
+              {/* Card breakdown */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                {[["easy", "✅ Mastered", C.green], ["hard", "⚠️ Review", C.amber], ["again", "🔁 Repeated", C.red]].map(([k, label, color]) => (
+                  <div key={k} style={{ flex: 1, background: color + "15", borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color }}>{stats[k]}</div>
+                    <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {stats.again > 0 && (
+                <div style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400e" }}>
+                  💪 You repeated {stats.again} hard card{stats.again > 1 ? "s" : ""} until you got {stats.again > 1 ? "them" : "it"} right. That's real learning.
+                </div>
+              )}
+
+              <button onClick={() => onFinish(true)} style={S.primaryBtn}>Complete & Save →</button>
             </div>
-            <button onClick={() => onFinish(true)} style={S.primaryBtn}>Mark Complete →</button>
           </div>
-        </div>
-      );
+        );
+      }
 
       return (
         <div style={{ minHeight: "100vh", background: C.bg }}>
@@ -520,6 +581,11 @@ easy=75-100, hard=40-74, again=0-39`;
           <div style={{ height: 4, background: "#e2e8f0" }}>
             <div style={{ height: "100%", background: deck.color || C.navy, width: `${progress}%`, transition: "width 0.4s" }} />
           </div>
+          {card && card.isRepeat && (
+            <div style={{ background: "#fef3c7", padding: "6px 20px", fontSize: 12, fontWeight: 600, color: "#92400e", textAlign: "center" }}>
+              🔁 Repeating — answer correctly to move on
+            </div>
+          )}
           <div style={{ padding: "20px", maxWidth: 600, margin: "0 auto" }}>
             <div style={{ background: "white", borderRadius: 14, padding: 20, marginBottom: 16, borderLeft: `4px solid ${deck.color || C.navy}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.muted, marginBottom: 10 }}>QUESTION</div>

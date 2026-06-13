@@ -485,26 +485,44 @@
         async function loadAll() {
           setLoadingCards(true);
           try {
-            // Always fetch fresh cards from deck table
-            let cards = deck.cards || [];
-            if (cards.length === 0) {
-              const deckData = await sb.req(`/decks?id=eq.${deck.id}`, {}, user.token);
-              if (deckData && deckData[0]) cards = deckData[0].cards || [];
+            // Step 1: Get cards — try passed cards first, then fetch from assignments, then from decks
+            let cards = [];
+            if (deck.cards && deck.cards.length > 0) {
+              cards = deck.cards;
+            } else {
+              // Try assignments table first
+              const assignData = await sb.req(`/assignments?id=eq.${deck.assignmentId || "none"}`, {}, user.token);
+              if (assignData && assignData[0] && assignData[0].cards && assignData[0].cards.length > 0) {
+                cards = assignData[0].cards;
+              } else {
+                // Final fallback: fetch directly from decks table
+                const deckData = await sb.req(`/decks?id=eq.${deck.id}`, {}, user.token);
+                if (deckData && deckData[0] && deckData[0].cards) {
+                  cards = deckData[0].cards;
+                }
+              }
             }
-            // Load FSRS progress
-            const progressData = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
-            const map = {};
-            if (progressData) progressData.forEach(p => { map[p.card_id] = p; });
+
+            // Step 2: Load FSRS progress
+            let map = {};
+            try {
+              const progressData = await sb.req(`/card_progress?student_id=eq.${user.id}&deck_id=eq.${deck.id}`, {}, user.token);
+              if (progressData) progressData.forEach(p => { map[p.card_id] = p; });
+            } catch(e) {}
             setCardProgress(map);
-            // Filter due cards
+
+            // Step 3: Filter due cards — show all if none are due
             const now = new Date();
             const due = cards.filter(c => {
               const cp = map[c.id];
               if (!cp) return true;
               return new Date(cp.due_date) <= now;
             });
-            setQueue(due.length > 0 ? due : cards);
+
+            const finalQueue = due.length > 0 ? due : cards;
+            setQueue(finalQueue);
           } catch(e) {
+            // Last resort — use whatever was passed
             setQueue(deck.cards || []);
           }
           setLoadingCards(false);
@@ -541,12 +559,12 @@
         </div>
       );
 
-      if (queue.length === 0) return (
+      if (!loadingCards && queue.length === 0) return (
         <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>No cards found</div>
           <div style={{ fontSize: 14, color: C.muted, marginTop: 8, marginBottom: 20 }}>Ask your teacher to check this deck.</div>
-          <button onClick={() => onFinish("back")} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px" }}>Go Back</button>
+          <button onClick={() => { if (onFinish) onFinish("back"); }} style={{ ...S.primaryBtn, width: "auto", padding: "12px 24px" }}>← Go Back</button>
         </div>
       );
 
@@ -912,7 +930,7 @@ easy=75-100, hard=40-74, again=0-39`;
                                   if (deckData && deckData[0]) cards = deckData[0].cards || [];
                                 } catch(e) {}
                               }
-                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: cards } });
+                              setActiveStudy({ id: a.id, deck: { id: a.deck_id, assignmentId: a.id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: cards } });
                             }}
                             style={{ background: a.dueCount === 0 ? C.muted : COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: a.dueCount === 0 ? "not-allowed" : "pointer" }}
                             disabled={a.dueCount === 0}>

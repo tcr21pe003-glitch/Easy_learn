@@ -902,7 +902,7 @@ easy=75-100, hard=40-74, again=0-39`;
                         <div style={{ padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
                             <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{a.deck_name}</div>
-                            <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{a.dueCount > 0 ? `${a.dueCount} cards due today` : "No cards due · check back tomorrow"}</div>
+                            <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{a.dueCount > 0 ? `${a.dueCount} cards due today` : "All reviewed · tap to study again"}</div>
                           </div>
                           <button onClick={async () => {
                               // Always fetch fresh cards from decks table to avoid blank screen
@@ -915,9 +915,8 @@ easy=75-100, hard=40-74, again=0-39`;
                               }
                               setActiveStudy({ id: a.id, deck: { id: a.deck_id, assignmentId: a.id, name: a.deck_name, color: COLORS[i % COLORS.length], cards: cards } });
                             }}
-                            style={{ background: a.dueCount === 0 ? C.muted : COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: a.dueCount === 0 ? "not-allowed" : "pointer" }}
-                            disabled={a.dueCount === 0}>
-                            {a.dueCount === 0 ? "All done ✓" : `Study ${a.dueCount} cards →`}
+                            style={{ background: COLORS[i % COLORS.length], color: "white", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                            {a.dueCount === 0 ? "Review All →" : `Study ${a.dueCount} cards →`}
                           </button>
                         </div>
                       </div>
